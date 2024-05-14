@@ -7949,7 +7949,15 @@ rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
 {
         struct rtl8168_private *tp = netdev_priv(net);
         struct ethtool_eee *eee = &tp->eee;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+        u32 lp, tx_lpi_timer = 0;
+        __ETHTOOL_DECLARE_LINK_MODE_MASK(advertised) = { 0, };
+        __ETHTOOL_DECLARE_LINK_MODE_MASK(lp_advertised) = { 0, };
+        __ETHTOOL_DECLARE_LINK_MODE_MASK(supported) = { 0, };
+        __ETHTOOL_DECLARE_LINK_MODE_MASK(common);
+#else
         u32 lp, adv, tx_lpi_timer, supported = 0;
+#endif
         u16 val;
 
         if (!rtl8168_support_eee(tp))
@@ -7959,10 +7967,18 @@ rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
                 return -EBUSY;
 
         /* Get Supported EEE */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+        ethtool_convert_legacy_u32_to_link_mode(supported, eee->supported);
+#else
         supported = eee->supported;
+#endif
 
         /* Get advertisement EEE */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
+        ethtool_convert_legacy_u32_to_link_mode(advertised, eee->advertised);
+#else
         adv = eee->advertised;
+#endif
 
         /* Get LP advertisement EEE */
         rtl8168_mdio_write(tp, 0x1F, 0x0A5D);
@@ -7978,12 +7994,16 @@ rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
         rtl8168_mdio_write(tp, 0x1F, 0x0000);
 
         edata->eee_enabled = !!val;
-        edata->eee_active = !!(supported & adv & lp);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
-        ethtool_convert_legacy_u32_to_link_mode(edata->supported, supported);
-        ethtool_convert_legacy_u32_to_link_mode(edata->advertised, adv);
-        ethtool_convert_legacy_u32_to_link_mode(edata->lp_advertised, lp);
+        ethtool_convert_legacy_u32_to_link_mode(lp_advertised, lp);
+        linkmode_and(common, supported, advertised);
+        linkmode_and(common, common, lp_advertised);
+        edata->eee_active = !(linkmode_empty(common));
+        linkmode_copy(edata->supported, supported);
+        linkmode_copy(edata->advertised, advertised);
+        linkmode_copy(edata->lp_advertised, lp_advertised);
 #else
+        edata->eee_active = !!(supported & adv & lp);
         edata->supported = supported;
         edata->advertised = adv;
         edata->lp_advertised = lp;
@@ -8004,7 +8024,7 @@ rtl_ethtool_set_eee(struct net_device *net, struct ethtool_eee *edata)
         struct rtl8168_private *tp = netdev_priv(net);
         struct ethtool_eee *eee = &tp->eee;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,9,0)
-        u32 advertising, adv, supported;
+        u32 advertising, adv;
 #else
         u32 advertising;
 #endif
